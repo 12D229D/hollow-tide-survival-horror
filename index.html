@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hollow Tide — Survival Horror de Plataforma Abandonada</title>
+  <meta name="description" content="Vertical Slice de supervivencia en la plataforma marina Brinemark. Gestión de recursos, puzles y acechador reactivo al sonido.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Chivo+Mono:ital,wght@0,300;0,400;0,600;0,700;1,400&family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="src/style.css">
+  <!-- Import map for Three.js -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+      }
+    }
+  </script>
+</head>
+<body class="horror-vignette">
+  <div id="game-container">
+    <!-- Viewport 3D Three.js -->
+    <div id="viewport-canvas-container"></div>
+
+    <!-- Scanline & Noise CRT Overlay -->
+    <div class="crt-overlay" aria-hidden="true"></div>
+    <div class="water-submersion-overlay" id="water-overlay" aria-hidden="true"></div>
+
+    <!-- Diegetic HUD Header -->
+    <header id="diegetic-header" class="diegetic-panel hud-top">
+      <div class="brand-zone">
+        <span class="facility-badge">BRINEMARK RIG • SECTOR SUB-04</span>
+        <h1 class="game-title">HOLLOW TIDE</h1>
+      </div>
+      <div class="status-zone">
+        <div class="tide-gauge" title="Nivel de Marea en la planta">
+          <span class="label">MAREA SUBTERRÁNEA</span>
+          <div class="gauge-bar"><div id="tide-fill" class="gauge-fill" style="width: 25%;"></div></div>
+          <span id="tide-text" class="status-val">25% (BAJAMAR)</span>
+        </div>
+        <div class="audio-threat-gauge" title="Nivel de Ruido emitido">
+          <span class="label">EMISIÓN SONORA</span>
+          <div class="acoustic-meter">
+            <span class="pulse-dot" id="noise-pulse"></span>
+            <span id="noise-level-text">SILENCIO</span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Tactical HUD Bottom-Left & Bottom-Right -->
+    <section id="tactical-hud" class="hud-layer" aria-label="Estado del Operador">
+      <div class="vital-card diegetic-panel">
+        <div class="card-header">
+          <span class="icon">⚕</span> CONDICIÓN FÍSICA
+        </div>
+        <div class="vital-body">
+          <div class="ecg-container">
+            <svg class="ecg-line" viewBox="0 0 160 30">
+              <path id="ecg-path" d="M0,15 L30,15 L40,5 L50,25 L60,15 L90,15 L100,5 L110,25 L120,15 L160,15" />
+            </svg>
+          </div>
+          <div class="health-meta">
+            <span id="health-status-text" class="health-fine">ESTABLE</span>
+            <span id="health-value-text" class="health-points">100 HP</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="flashlight-card diegetic-panel">
+        <div class="card-header">
+          <span class="icon">🔦</span> LINTERNA [F]
+        </div>
+        <div class="vital-body">
+          <div class="battery-meter">
+            <div id="battery-fill" class="battery-fill" style="width: 100%;"></div>
+          </div>
+          <span id="battery-text" class="battery-percent">100%</span>
+        </div>
+      </div>
+
+      <div class="threat-alert-panel diegetic-panel" id="stalker-proximity-warning">
+        <span class="alert-icon">⚠️</span>
+        <span class="alert-msg" id="stalker-alert-msg">SENSOR ECOICO: VIGILANCIA</span>
+      </div>
+    </section>
+
+    <!-- Interaction Prompt Pop -->
+    <div id="interaction-prompt" class="interaction-prompt hidden">
+      <span class="prompt-key">[E]</span>
+      <span class="prompt-text" id="interaction-prompt-text">Accionar</span>
+    </div>
+
+    <!-- Audio Atmosphere Notification -->
+    <div id="log-feed" class="log-feed"></div>
+
+    <!-- Modals and Overlays (Inventory, Map, Puzzles, Save, Pause) -->
+
+    <!-- Inventory Screen (TAB or I) -->
+    <div id="inventory-modal" class="modal-backdrop hidden">
+      <div class="modal-frame diegetic-panel">
+        <div class="modal-header">
+          <h2>INVENTARIO DE OPERACIONES // BRINEMARK</h2>
+          <button class="btn-close" id="btn-close-inventory">×</button>
+        </div>
+        <div class="inventory-content">
+          <div class="inventory-grid" id="inventory-grid">
+            <!-- 8 slots grid -->
+          </div>
+          <div class="item-detail-panel" id="item-detail-panel">
+            <h3 id="item-detail-title">Selecciona un objeto</h3>
+            <p id="item-detail-desc" class="item-desc">Gestiona tus suministros con precaución. El espacio en el mono de buceo es limitado.</p>
+            <div class="item-actions" id="item-actions"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tactical Map & Operator Notes (M) -->
+    <div id="map-modal" class="modal-backdrop hidden">
+      <div class="modal-frame map-frame diegetic-panel">
+        <div class="modal-header">
+          <h2>MAPA DE PLANTA SUBTERRÁNEA & BITÁCORA</h2>
+          <button class="btn-close" id="btn-close-map">×</button>
+        </div>
+        <div class="map-layout-container">
+          <div class="map-canvas-wrapper">
+            <canvas id="schematic-map-canvas" width="600" height="420"></canvas>
+            <div class="map-legend">
+              <span class="legend-item"><span class="dot player-dot"></span> Operador</span>
+              <span class="legend-item"><span class="dot stalker-dot"></span> Ecos Sospechosos</span>
+              <span class="legend-item"><span class="dot buoy-dot"></span> Boya Guardado</span>
+              <span class="legend-item"><span class="dot puzzle-dot"></span> Mecanismos</span>
+            </div>
+          </div>
+          <div class="operator-notes-wrapper">
+            <h3>ANOTACIONES DEL OPERADOR (MEMORIA)</h3>
+            <p class="notes-hint">Escribe advertencias en el mapa. La entidad aprenderá y evitará o rastreará tus rutas anotadas.</p>
+            <div class="notes-list" id="notes-list"></div>
+            <div class="notes-input-zone">
+              <input type="text" id="note-input" placeholder="Ej: Sector C inundado, válvula atascada..." maxlength="80">
+              <button id="btn-add-note" class="btn-terminal">Anotar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Save Buoy Terminal Modal -->
+    <div id="save-modal" class="modal-backdrop hidden">
+      <div class="modal-frame diegetic-panel save-frame">
+        <div class="modal-header">
+          <h2>BOYA DE REGISTRO TELEMETRÍA #09</h2>
+          <button class="btn-close" id="btn-close-save">×</button>
+        </div>
+        <div class="save-body">
+          <p>Las boyas consumen un <strong>Cilindro de Frecuencia</strong> por cada registro criptográfico en el almacenamiento de memoria fría.</p>
+          <div class="save-slots" id="save-slots-container">
+            <!-- Save Slots loaded from SQLite -->
+          </div>
+          <div class="save-actions">
+            <button id="btn-do-save" class="btn-terminal highlight">GRABAR ESTADO ACTUAL</button>
+            <button id="btn-export-sqlite" class="btn-terminal">EXPORTAR SCHEMA & BD</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Puzzle 1: Valve Board (Drenaje de Marea) -->
+    <div id="puzzle-valve-modal" class="modal-backdrop hidden">
+      <div class="modal-frame diegetic-panel puzzle-frame">
+        <div class="modal-header">
+          <h2>CONSOLA DE DRENAJE // COLECTOR DE AGUA</h2>
+          <button class="btn-close" id="btn-close-valve">×</button>
+        </div>
+        <div class="puzzle-content" id="valve-puzzle-container">
+          <p class="puzzle-brief">Regula las 3 válvulas maestras para estabilizar la presión hidráulica en <strong>100 PSI</strong> y bajar la marea de la planta.</p>
+          <div class="valves-deck">
+            <div class="valve-column">
+              <label>VÁLVULA α (ALTA)</label>
+              <div class="valve-wheel" id="valve-a" data-val="0">0°</div>
+              <div class="valve-gauge"><span id="gauge-val-a">+0 PSI</span></div>
+              <button class="btn-terminal btn-turn-valve" data-target="a">GIRAR 90°</button>
+            </div>
+            <div class="valve-column">
+              <label>VÁLVULA β (MEDIA)</label>
+              <div class="valve-wheel" id="valve-b" data-val="0">0°</div>
+              <div class="valve-gauge"><span id="gauge-val-b">+0 PSI</span></div>
+              <button class="btn-terminal btn-turn-valve" data-target="b">GIRAR 90°</button>
+            </div>
+            <div class="valve-column">
+              <label>VÁLVULA γ (PURGA)</label>
+              <div class="valve-wheel" id="valve-c" data-val="0">0°</div>
+              <div class="valve-gauge"><span id="gauge-val-c">+0 PSI</span></div>
+              <button class="btn-terminal btn-turn-valve" data-target="c">GIRAR 90°</button>
+            </div>
+          </div>
+          <div class="pressure-summary">
+            <span>PRESIÓN ACUMULADA: <strong id="current-pressure-sum">0</strong> / 100 PSI</span>
+            <span id="valve-status-indicator" class="valve-unbalanced">DESEQUILIBRADO</span>
+          </div>
+          <button id="btn-execute-drain" class="btn-terminal highlight">APLICAR PURGA HIDRÁULICA</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Puzzle 2: Cipher Log (Descifrado de Bitácora) -->
+    <div id="puzzle-cipher-modal" class="modal-backdrop hidden">
+      <div class="modal-frame diegetic-panel puzzle-frame">
+        <div class="modal-header">
+          <h2>TERMINAL DE CRIPTOGRAFÍA // ARCHIVO BRINEMARK</h2>
+          <button class="btn-close" id="btn-close-cipher">×</button>
+        </div>
+        <div class="puzzle-content">
+          <p class="puzzle-brief">La bitácora de emergencia del Dr. Halperin está cifrada. Reconstruye la frecuencia armónica ingresando los 4 glifos correspondientes a la sonda abisal.</p>
+          <div class="cipher-clue-box">
+            <em>"Bajo el fondo salino, la marea canta cuatro números: el número de cámaras estancas (4), los reactores (2), las boyas (9) y el cero abisal (0)."</em>
+          </div>
+          <div class="cipher-display">
+            <span class="cipher-digit" id="cd-0">_</span>
+            <span class="cipher-digit" id="cd-1">_</span>
+            <span class="cipher-digit" id="cd-2">_</span>
+            <span class="cipher-digit" id="cd-3">_</span>
+          </div>
+          <div class="cipher-keypad">
+            <button class="btn-key" data-num="1">1</button>
+            <button class="btn-key" data-num="2">2</button>
+            <button class="btn-key" data-num="3">3</button>
+            <button class="btn-key" data-num="4">4</button>
+            <button class="btn-key" data-num="5">5</button>
+            <button class="btn-key" data-num="6">6</button>
+            <button class="btn-key" data-num="7">7</button>
+            <button class="btn-key" data-num="8">8</button>
+            <button class="btn-key" data-num="9">9</button>
+            <button class="btn-key btn-clear" id="btn-cipher-clear">CLR</button>
+            <button class="btn-key" data-num="0">0</button>
+            <button class="btn-key btn-enter" id="btn-cipher-submit">ENT</button>
+          </div>
+          <div id="cipher-feedback" class="feedback-msg"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Puzzle 3: Power Grid Switch (Conmutador Eléctrico) -->
+    <div id="puzzle-power-modal" class="modal-backdrop hidden">
+      <div class="modal-frame diegetic-panel puzzle-frame">
+        <div class="modal-header">
+          <h2>CUADRO DE FUSIBLES AUXILIARES // SECTOR C</h2>
+          <button class="btn-close" id="btn-close-power">×</button>
+        </div>
+        <div class="puzzle-content">
+          <p class="puzzle-brief">Conecta los relés para derivar 240V hacia las esclusas del muelle de rescate sin sobrecargar los disyuntores.</p>
+          <div class="breakers-grid" id="breakers-grid">
+            <!-- 5 toggles with different voltage values -->
+          </div>
+          <div class="power-summary">
+            <span>POTENCIA DERIVADA: <strong id="current-voltage">0</strong> / 240 V</span>
+            <span id="power-status-indicator" class="power-off">CIRCUITO ABIERTO</span>
+          </div>
+          <button id="btn-engage-power" class="btn-terminal highlight">ACTIVAR SUB-ESTACIÓN</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Escape / Pause / Instructions Modal -->
+    <div id="pause-modal" class="modal-backdrop hidden">
+      <div class="modal-frame diegetic-panel pause-frame">
+        <div class="modal-header">
+          <h2>HOLLOW TIDE // PAUSA DEL SISTEMA</h2>
+          <button class="btn-close" id="btn-close-pause">×</button>
+        </div>
+        <div class="pause-body">
+          <div class="controls-guide">
+            <h3>CONTROLES DE SUPERVIVENCIA</h3>
+            <ul>
+              <li><strong>WASD / Flechas:</strong> Movimiento del operador.</li>
+              <li><strong>Ratón (o Arrastrar):</strong> Giro de cámara libre / Tercera persona orbital.</li>
+              <li><strong>Shift:</strong> Correr (¡Atención! Genera alto ruido sonoro que atrae a La Resaca).</li>
+              <li><strong>F:</strong> Encender / Apagar linterna (consume batería).</li>
+              <li><strong>E / Espacio:</strong> Interactuar (puertas, boyas, válvulas, botiquines, notas).</li>
+              <li><strong>TAB / I:</strong> Abrir Inventario de emergencia.</li>
+              <li><strong>M:</strong> Abrir Mapa de memoria y bitácora.</li>
+              <li><strong>C:</strong> Alternar modo de cámara (Tercera persona cinemática / Cámaras fijas de seguridad estilo CCTV clásico).</li>
+              <li><strong>ESC:</strong> Menú de pausa.</li>
+            </ul>
+          </div>
+          <div class="pause-actions">
+            <button id="btn-resume-game" class="btn-terminal highlight">REANUDAR EXPEDICIÓN</button>
+            <button id="btn-toggle-sound" class="btn-terminal">MUTEAR / DESMUTEAR AUDIO</button>
+            <button id="btn-reset-game" class="btn-terminal">REINICIAR DESDE ÚLTIMA BOYA</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Start / Splash Screen Overlay (To unlock Web Audio API) -->
+    <div id="splash-modal" class="modal-backdrop">
+      <div class="modal-frame splash-frame diegetic-panel">
+        <div class="splash-hero">
+          <span class="sub-lead">EXPEDICIÓN SUBTERRÁNEA // BRINEMARK</span>
+          <h2>HOLLOW TIDE</h2>
+          <p class="tagline">La marea no perdona. La Resaca escucha cada paso en el agua.</p>
+        </div>
+        <div class="splash-briefing">
+          <p>Eres la ingeniera jefa de mantenimiento de la estación marina Brinemark. La plataforma ha sido abandonada de emergencia tras inundarse el sector inferior y liberarse una entidad acústica marina.</p>
+          <p><strong>Tu misión:</strong> Drena la marea mediante las válvulas de bombeo, restablece la energía de las esclusas y evacua a través de la cápsula de buceo.</p>
+        </div>
+        <button id="btn-start-game" class="btn-start-expedition">INICIAR EXPEDICIÓN (AUDIO INMERSIVO)</button>
+        <span class="audio-notice">Requiere interacción de audio para activar el sintetizador espacial Web Audio API.</span>
+      </div>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="gameover-modal" class="modal-backdrop hidden">
+      <div class="modal-frame gameover-frame diegetic-panel">
+        <h2 class="gameover-title">SIGNOS VITALES PERDIDOS</h2>
+        <p class="gameover-desc">La Resaca te ha arrastrado a la profundidad salina de la plataforma.</p>
+        <button id="btn-gameover-reload" class="btn-terminal highlight">REINTENTAR DESDE LA ÚLTIMA BOYA</button>
+      </div>
+    </div>
+
+    <!-- Victory Screen -->
+    <div id="victory-modal" class="modal-backdrop hidden">
+      <div class="modal-frame victory-frame diegetic-panel">
+        <h2 class="victory-title">EVACUACIÓN COMPLETADA</h2>
+        <p class="victory-desc">Has restaurado la energía, drenado la marea y escapado en la cápsula de presión antes de que la estructura colapsara.</p>
+        <div class="victory-stats" id="victory-stats-display"></div>
+        <button id="btn-victory-restart" class="btn-terminal highlight">JUGAR DE NUEVO</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Entry Script as ES Module -->
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
